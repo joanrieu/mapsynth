@@ -1,3 +1,4 @@
+#include <cmath>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -13,10 +14,12 @@ int main() {
         { "master-period", 1.f / 48000 },
 
         // XXX
-        { "test-0", 0 },
-        { "test-1", 1 },
-        { "test-20", 20 },
-        { "test-440", 440 },
+        { "test-vco-trigger", 1 },
+        { "test-vco-shape", 2 },
+        { "test-lfo-rate", 1 },
+        { "test-lfo-base", 440 },
+        { "test-lfo-amount", 20 },
+        { "test-vcf-cutoff", 0.1 },
 
         // VCO
         { "vco-output", 0 },
@@ -33,20 +36,21 @@ int main() {
     std::map<std::string, std::string> inputs = {
 
         // Master
-        { "master-input", "vco-output" }, // FIXME
+        { "master-input", "vcf-output" },
 
         // VCO
-        { "vco-trigger", "test-1" },
+        { "vco-trigger", "test-vco-trigger" },
         { "vco-pitch", "lfo-output" },
+        { "vco-shape", "test-vco-shape" },
 
         // LFO
-        { "lfo-rate", "test-1" },
-        { "lfo-base", "test-440" },
-        { "lfo-amount", "test-20" },
+        { "lfo-rate", "test-lfo-rate" },
+        { "lfo-base", "test-lfo-base" },
+        { "lfo-amount", "test-lfo-amount" },
 
         // VCF
-        { "vcf-input", "" },
-        { "vcf-cutoff", "" },
+        { "vcf-input", "vco-output" },
+        { "vcf-cutoff", "test-vcf-cutoff" },
         { "vcf-resonance", "" },
 
     };
@@ -81,10 +85,23 @@ int main() {
                 * outputs.at(inputs.at("vco-pitch"));
             if (phase >= 1)
                 phase -= 1;
-            // Value
+            // Shape
             const bool enable = outputs.at(inputs.at("vco-trigger"));
-            const float value = 4 * (phase < .5f ? phase : (1 - phase)) - 1;
-            outputs.at("vco-output") = enable * value;
+            const float sine = std::sin(phase * 2 * M_PI);
+            const float triangle = std::abs(4 * phase - 2) - 1;
+            const float saw = 1 - 2 * phase;
+            const float square = 1 - 2 * (phase < .5f);
+            const float shape = outputs.at(inputs.at("vco-shape"));
+            float output;
+            if (shape >= 0 and shape <= 3) {
+                if (shape < 1)
+                    output = (1 - shape) * sine + shape * triangle;
+                else if (shape < 2)
+                    output = (2 - shape) * triangle + (shape - 1) * saw;
+                else
+                    output = (3 - shape) * saw + (shape - 2) * square;
+            }
+            outputs.at("vco-output") = enable * output;
         },
 
         // LFO
@@ -96,17 +113,20 @@ int main() {
                 * outputs.at(inputs.at("lfo-rate"));
             if (phase >= 1)
                 phase -= 1;
-            // Value
+            // Modulation
             const float mod = 4 * (phase < .5f ? phase : (1 - phase)) - 1;
-            const float value =
+            const float output =
                 outputs.at(inputs.at("lfo-base"))
                 + mod * outputs.at(inputs.at("lfo-amount"));
-            outputs.at("lfo-output") = value;
+            outputs.at("lfo-output") = output;
         },
 
         // VCF
         [&]() {
-            // TODO
+            static float output;
+            const float alpha = outputs.at(inputs.at("vcf-cutoff"));
+            output = alpha * outputs.at(inputs.at("vcf-input")) + (1 - alpha) * output;
+            outputs.at("vcf-output") = output;
         }
 
     };
